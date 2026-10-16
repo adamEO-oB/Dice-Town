@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>網頁版骰子鎮 - Multiplayer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Rye&family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #f4e8d1;
+            background-image: url('data:image/svg+xml;utf8,<svg width="100" height="100" xmlns="http://www.w3.org/2000/svg"><path d="M0 0h100v100H0z" fill="%23e8d5b5" fill-opacity="0.4"/><path d="M10 10c5-5 15-5 20 0s5 15 0 20-15 5-20 0-5-15 0-20zm40 40c5-5 15-5 20 0s5 15 0 20-15 5-20 0-5-15 0-20z" fill="%23d8c09a" fill-opacity="0.3"/></svg>');
+            color: #3e2723;
+        }
+        h1, h2, h3, .western-font {
+            font-family: 'Rye', cursive;
+        }
+        .die {
+            width: 60px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: white;
+            border: 2px solid #5d4037;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
+            user-select: none;
+        }
+        .die.staged {
+            background: #ffecb3;
+            border-color: #ff8f00;
+            transform: translateY(-5px);
+            box-shadow: 0 4px 10px rgba(255, 143, 0, 0.5);
+        }
+        .die.kept {
+            background: #e0e0e0;
+            border-color: #9e9e9e;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+            opacity: 0.8;
+            cursor: not-allowed;
+        }
+        .die:active {
+            transform: scale(0.95);
+        }
+        .die-face-9 { color: #5d4037; }
+        .die-face-10 { color: #2e7d32; }
+        .die-face-J { color: #1565c0; }
+        .die-face-Q { color: #c62828; }
+        .die-face-K { color: #f57f17; }
+        .die-face-A { color: #000000; }
+        
+        .board-card {
+            background: rgba(255, 255, 255, 0.85);
+            border: 2px solid #8d6e63;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        #modal-overlay, #draft-modal-overlay {
+            background: rgba(0,0,0,0.6);
+        }
+        /* Custom Scrollbar */
+        .log-container::-webkit-scrollbar { width: 6px; }
+        .log-container::-webkit-scrollbar-thumb { background: #8d6e63; border-radius: 3px; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col p-4 md:p-8">
+
+    <header class="text-center mb-6">
+        <h1 class="text-4xl md:text-5xl text-amber-900 drop-shadow-md">🤠 骰子鎮 Dice Town 🌵</h1>
+        <p class="text-sm font-bold text-amber-800 mt-2">多人連線版</p>
+    </header>
+
+    <main id="app-container" class="max-w-6xl mx-auto w-full flex-grow flex flex-col gap-6 hidden">
+        
+        <!-- 大廳視窗 -->
+        <div id="lobby-view" class="board-card p-6 md:p-10 rounded-xl max-w-md mx-auto w-full text-center">
+            <h2 class="text-2xl mb-4 western-font">準備進入小鎮</h2>
+            <div class="mb-4">
+                <input type="text" id="player-name-input" placeholder="輸入你的牛仔暱稱" class="w-full p-3 border-2 border-amber-800 rounded focus:outline-none focus:ring-2 focus:ring-amber-500 text-center font-bold">
+            </div>
+            <div class="flex flex-col gap-3">
+                <button id="btn-create-game" class="w-full py-3 bg-amber-700 hover:bg-amber-800 text-white font-bold rounded shadow transition">建立新遊戲</button>
+                <div class="relative flex py-2 items-center">
+                    <div class="flex-grow border-t border-gray-400"></div>
+                    <span class="flex-shrink-0 mx-4 text-gray-500 text-sm">或</span>
+                    <div class="flex-grow border-t border-gray-400"></div>
+                </div>
+                <input type="text" id="room-code-input" placeholder="輸入房間代碼" class="w-full p-3 border-2 border-amber-800 rounded focus:outline-none text-center uppercase">
+                <button id="btn-join-game" class="w-full py-3 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded shadow transition">加入遊戲</button>
+            </div>
+        </div>
+
+        <!-- 遊戲主視窗 -->
+        <div id="game-view" class="hidden flex-col gap-6 w-full">
+            <div class="flex flex-col md:flex-row justify-between items-center bg-amber-900 text-amber-50 p-4 rounded-lg shadow">
+                <div class="western-font text-xl">房間代碼: <span id="display-room-code" class="text-yellow-400 select-all cursor-pointer font-mono tracking-wider"></span></div>
+                <div id="game-status-header" class="font-bold mt-2 md:mt-0">等待玩家加入...</div>
+                <div class="font-bold text-lg">回合: <span id="display-round">1</span> <span class="text-sm ml-2 text-amber-300">(地產剩餘: <span id="display-properties">10</span>)</span></div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- 玩家列表區塊 -->
+                <div class="board-card p-4 rounded-lg md:col-span-1">
+                    <h3 class="text-lg font-bold mb-3 border-b-2 border-amber-800 pb-1 western-font">🤠 玩家列表</h3>
+                    <ul id="players-list" class="flex flex-col gap-2"></ul>
+                    <button id="btn-start-game" class="w-full mt-4 py-2 bg-green-700 hover:bg-green-800 text-white font-bold rounded hidden transition">開始遊戲</button>
+                </div>
+
+                <!-- 結算地點資訊區塊 -->
+                <div class="board-card p-4 rounded-lg md:col-span-2">
+                    <h3 class="text-lg font-bold mb-3 border-b-2 border-amber-800 pb-1 western-font">🏛️ 鎮上地點 (結算獎勵)</h3>
+                    <div class="grid grid-cols-2 md:grid-cols-3 gap-2 text-sm">
+                        <div class="p-2 bg-amber-100 rounded border border-amber-200"><strong>[9] 金礦:</strong> 最多9拿金塊(1分)</div>
+                        <div class="p-2 bg-green-100 rounded border border-green-200 shadow-inner"><strong>[10] 銀行:</strong> 拿走銀行所有錢 (<span id="display-bank" class="font-bold text-green-700 text-lg">0</span>元)</div>
+                        <div class="p-2 bg-blue-100 rounded border border-blue-200"><strong>[J] 雜貨店:</strong> 最多J抽卡(依J數量)</div>
+                        <div class="p-2 bg-red-100 rounded border border-red-200"><strong>[Q] 酒館:</strong> 最多Q偷大家1元</div>
+                        <div class="p-2 bg-orange-100 rounded border border-orange-200"><strong>[K] 警長:</strong> 最多K拿警長(平手優勢/5分)</div>
+                        <div class="p-2 bg-gray-100 rounded border border-gray-200"><strong>[A] 市政廳:</strong> 最佳牌型拿地產(結束條件)</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 玩家擲骰與手牌操作區 -->
+            <div class="board-card p-6 rounded-lg text-center relative">
+                <h3 id="my-turn-status" class="text-xl font-bold mb-4 western-font text-amber-900">你的骰子</h3>
+                
+                <div id="dice-container" class="flex flex-wrap justify-center gap-4 mb-6 min-h-[60px]">
+                    <!-- 骰子動態生成 -->
+                </div>
+
+                <!-- 手牌區 -->
+                <div id="my-cards-container" class="flex flex-wrap justify-center gap-2 mb-4 empty:hidden">
+                    <!-- 卡牌動態生成 -->
+                </div>
+
+                <div class="flex justify-center gap-4">
+                    <button id="btn-roll" class="px-6 py-3 bg-amber-700 hover:bg-amber-800 text-white font-bold rounded shadow transition disabled:opacity-50 disabled:cursor-not-allowed">
+                        請選擇保留的骰子
+                    </button>
+                </div>
+                <p class="text-sm text-gray-600 mt-3">點擊選擇本次要保留的骰子。第一顆免費，每多保留一顆需支付 1 元到銀行。</p>
+            </div>
+
+            <!-- 小鎮日誌區 -->
+            <div class="board-card p-4 rounded-lg bg-yellow-50/50">
+                <h3 class="text-md font-bold mb-2 text-amber-800">📜 小鎮日誌</h3>
+                <div id="game-logs" class="log-container h-32 overflow-y-auto text-sm text-gray-800 space-y-1 p-2 bg-white rounded border border-amber-200">
+                    <!-- 日誌動態寫入 -->
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 系統訊息提示框 -->
+    <div id="modal-overlay" class="fixed inset-0 hidden items-center justify-center z-50 p-4 backdrop-blur-sm">
+        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full text-center border-4 border-amber-900">
+            <h3 id="modal-title" class="text-2xl font-bold mb-2 western-font text-amber-900">訊息</h3>
+            <p id="modal-message" class="text-gray-700 mb-6 whitespace-pre-wrap"></p>
+            <button id="modal-btn" class="px-6 py-2 bg-amber-700 text-white font-bold rounded hover:bg-amber-800 w-full transition">確定</button>
+        </div>
+    </div>
+
+    <!-- 房地產順位挑選介面 -->
+    <div id="draft-modal-overlay" class="fixed inset-0 hidden items-center justify-center z-40 bg-black/70 p-4 backdrop-blur-sm">
+        <div class="bg-amber-50 p-6 md:p-10 rounded-xl shadow-2xl max-w-3xl w-full text-center border-4 border-amber-900">
+            <h3 class="text-3xl font-bold mb-2 western-font text-amber-900 drop-shadow-sm">🏛️ 市政廳結算</h3>
+            <p id="draft-status-text" class="text-lg text-amber-800 font-bold mb-8">等待玩家挑選房地產...</p>
+            <div id="draft-cards-container" class="flex flex-wrap justify-center gap-6 mb-8">
+                <!-- 房地產卡動態生成 -->
+            </div>
+            <div id="draft-skip-container" class="hidden">
+                <button id="btn-skip-draft" class="px-8 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 font-bold transition shadow-md">放棄挑選 (Skip)</button>
+            </div>
+            <p class="text-sm text-gray-500 mt-6">* 牌型最佳者先選，依序傳給下一家挑選。</p>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, increment } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // =======================================================================
+        // 🔥🔥🔥 [重要設定] Firebase Config 替換區 🔥🔥🔥
+        // =======================================================================
+        
+        let firebaseConfig = {
+            apiKey: "AIzaSyCopxD9KMlSvV8V76TR7UzR_-rCBPC9cX4",
+            authDomain: "dice-town-1.firebaseapp.com",
+            projectId: "dice-town-1",
+            storageBucket: "dice-town-1.firebasestorage.app",
+            messagingSenderId: "343371581423",
+            appId: "1:343371581423:web:f1fa5f58d03fcf1250981a",
+            measurementId: "G-F24FWMV9BX"
+        };
+
+        const fallbackAppId = 'dice-town-web-standalone';
+        let appId = fallbackAppId;
+        let initialAuthToken = null;
+
+        // 為了相容於某些沙盒測試環境的自動注入
+        try {
+            if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                firebaseConfig = JSON.parse(__firebase_config);
+            }
+            if (typeof __app_id !== 'undefined' && __app_id) appId = __app_id;
+            if (typeof __initial_auth_token !== 'undefined') initialAuthToken = __initial_auth_token;
+        } catch (e) {
+            console.warn("Using default standalone config.");
+        }
+
+        // 初始化 Firebase
+        if (!firebaseConfig.apiKey && !firebaseConfig.projectId) {
+            // 開發防呆：如果沒有設定檔，給予假設定避免網頁立刻崩潰 (但無法連線)
+            firebaseConfig = { projectId: "dummy-project" };
+            console.warn("⚠️ 尚未設定 Firebase Config！遊戲將無法連線。請修改程式碼中的 firebaseConfig。");
+        }
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        // 狀態管理
+        let currentUser = null;
+        let currentGameId = null;
+        let unsubscribeGame = null;
+        let stagedIndices = new Set();
+        let localPlayerState = {
+            name: "牛仔",
+            dice: ['9','9','9','9','9'],
+            kept: [false,false,false,false,false],
+            cash: 0,
+            gold: 0,
+            locked: false,
+            cards: [] 
+        };
+        let gameData = null;
+
+        const FACES = ['9', '10', 'J', 'Q', 'K', 'A'];
+
+        // 雜貨店卡牌庫 (完整版)
+        const CARD_DB = {
+            // 主動卡
+            'whiskey': { name: '🥃 威士忌', desc: '立刻拿2元(點擊使用)', type: 'active', execute: (p, updates, gd, uid) => { p.cash += 2; return "大口喝下 🥃 威士忌，獲得了 2 元！"; } },
+            'map': { name: '🗺️ 藏寶圖', desc: '立刻拿1金塊(點擊使用)', type: 'active', execute: (p, updates, gd, uid) => { p.gold += 1; return "破解了 🗺️ 藏寶圖，挖到 1 個金塊！"; } },
+            'dynamite': { name: '🧨 炸藥', desc: '從銀行炸出最多3元', type: 'active', execute: (p, updates, gd, uid) => { const steal = Math.min(3, gd.bankCash || 0); p.cash += steal; updates['bankCash'] = (gd.bankCash || 0) - steal; return `引爆了 🧨 炸藥，從銀行炸出了 ${steal} 元！`; } },
+            'fake_badge': { name: '🌟 假星章', desc: '立刻奪取警長職位', type: 'active', execute: (p, updates, gd, uid) => { Object.keys(gd.players).forEach(otherUid => { if (gd.players[otherUid].hasSheriff) updates[`players.${otherUid}.hasSheriff`] = false; }); p.hasSheriff = true; return "亮出了 🌟 假星章，強行奪取了警長職位！"; } },
+            'stagecoach': { name: '🦼 馬車', desc: '額外抽1張卡', type: 'active', execute: (p, updates, gd, uid) => { const randomCard = CARD_KEYS[Math.floor(Math.random() * CARD_KEYS.length)]; p.cards.push(randomCard); return `搭乘 🦼 馬車，額外進貨了一張雜貨店卡。`; } },
+            'snake_oil': { name: '🧪 蛇油', desc: '拿1金塊和1元', type: 'active', execute: (p, updates, gd, uid) => { p.gold += 1; p.cash += 1; return "賣出了一瓶 🧪 蛇油，騙到了 1 個金塊與 1 元！"; } },
+            
+            // 被動卡 (結束計分)
+            'horse': { name: '🐎 駿馬', desc: '遊戲結束+1分', type: 'passive', vp: 1 },
+            'bag_of_gold': { name: '💰 一袋金幣', desc: '遊戲結束+2分', type: 'passive', vp: 2 },
+            'bounty': { name: '📜 懸賞單', desc: '遊戲結束+3分', type: 'passive', vp: 3 },
+            'showgirl': { name: '💃 舞女', desc: '遊戲結束+4分', type: 'passive', vp: 4 },
+            'deed': { name: '🏠 假地契', desc: '遊戲結束+5分', type: 'passive', vp: 5 }
+        };
+        const CARD_KEYS = Object.keys(CARD_DB);
+
+        // DOM 元素綁定
+        const elApp = document.getElementById('app-container');
+        const elLobby = document.getElementById('lobby-view');
+        const elGame = document.getElementById('game-view');
+        const elPlayerName = document.getElementById('player-name-input');
+        const elRoomCode = document.getElementById('room-code-input');
+        const btnCreate = document.getElementById('btn-create-game');
+        const btnJoin = document.getElementById('btn-join-game');
+        const displayRoomCode = document.getElementById('display-room-code');
+        const displayRound = document.getElementById('display-round');
+        const listPlayers = document.getElementById('players-list');
+        const btnStart = document.getElementById('btn-start-game');
+        const containerDice = document.getElementById('dice-container');
+        const btnRoll = document.getElementById('btn-roll');
+        const statusHeader = document.getElementById('game-status-header');
+        const myTurnStatus = document.getElementById('my-turn-status');
+        const gameLogs = document.getElementById('game-logs');
+        
+        const modalOverlay = document.getElementById('modal-overlay');
+        const modalTitle = document.getElementById('modal-title');
+        const modalMessage = document.getElementById('modal-message');
+        const modalBtn = document.getElementById('modal-btn');
+        let modalResolve = null;
+
+        function showMessage(title, message) {
+            return new Promise((resolve) => {
+                modalTitle.textContent = title;
+                modalMessage.textContent = message;
+                modalOverlay.classList.remove('hidden');
+                modalOverlay.classList.add('flex');
+                modalResolve = resolve;
+            });
+        }
+        modalBtn.addEventListener('click', () => {
+            modalOverlay.classList.add('hidden');
+            modalOverlay.classList.remove('flex');
+            if (modalResolve) modalResolve();
+        });
+
+        // 登入初始化
+        async function initAuth() {
+            try {
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                currentUser = auth.currentUser;
+                elApp.classList.remove('hidden');
+                elPlayerName.value = "牛仔" + Math.floor(Math.random() * 1000);
+            } catch (error) {
+                console.error("Auth error:", error);
+                showMessage("系統錯誤", "無法連線到資料庫，請確認 Firebase 設定是否正確。");
+            }
+        }
+
+        // Firestore 路徑管理 (支援兩種環境)
+        function getGameRef(gameId) {
+            // 若有沙盒 appId，使用沙盒路徑，否則直接在根目錄開 rooms 集合
+            if (appId && appId !== fallbackAppId) {
+                return doc(db, 'artifacts', appId, 'public', 'data', 'dicetown_rooms', gameId);
+            } else {
+                return doc(db, 'dicetown_rooms', gameId);
+            }
+        }
+
+        function generateRoomCode() {
+            return Math.random().toString(36).substring(2, 8).toUpperCase();
+        }
+
+        btnCreate.addEventListener('click', async () => {
+            if (!currentUser) return showMessage("錯誤", "您尚未登入。");
+            const name = elPlayerName.value.trim() || "無名氏";
+            const gameId = generateRoomCode();
+            
+            // 洗牌房地產 (1~5分)
+            const baseDeck = [1, 2, 2, 3, 3, 3, 3, 4, 4, 5];
+            const propertiesDeck = baseDeck.sort(() => Math.random() - 0.5);
+            
+            const newGameData = {
+                status: 'lobby', // lobby, rolling, evaluating, drafting, finished
+                round: 1,
+                propertiesDeck: propertiesDeck,
+                bankCash: 5, // 初始銀行資金
+                hostId: currentUser.uid,
+                players: {
+                    [currentUser.uid]: {
+                        name: name, score: 0, cash: 0, gold: 0, hasSheriff: false,
+                        dice: ['9','9','9','9','9'], kept: [false,false,false,false,false],
+                        locked: false, cards: []
+                    }
+                },
+                logs: [`${name} 建立了新酒局，正等待其他人。`]
+            };
+
+            try {
+                await setDoc(getGameRef(gameId), newGameData);
+                joinRoom(gameId, name);
+            } catch (e) {
+                console.error(e);
+                showMessage("權限錯誤", "無法建立房間。請確認 Firestore 的 Rule 是否有開啟公開讀寫權限。");
+            }
+        });
+
+        btnJoin.addEventListener('click', async () => {
+            if (!currentUser) return;
+            const name = elPlayerName.value.trim() || "無名氏";
+            const gameId = elRoomCode.value.trim().toUpperCase();
+            if (!gameId) return showMessage("提示", "請輸入房間代碼。");
+
+            try {
+                const docSnap = await getDoc(getGameRef(gameId));
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    if (data.status !== 'lobby') return showMessage("提示", "遊戲已經開始或已結束，無法加入。");
+                    if (Object.keys(data.players).length >= 5) return showMessage("提示", "房間已滿 (上限5人)。");
+                    
+                    const updatedPlayers = { ...data.players };
+                    if (!updatedPlayers[currentUser.uid]) {
+                        updatedPlayers[currentUser.uid] = {
+                            name: name, score: 0, cash: 0, gold: 0, hasSheriff: false,
+                            dice: ['9','9','9','9','9'], kept: [false,false,false,false,false],
+                            locked: false, cards: []
+                        };
+                        const newLogs = [...data.logs, `${name} 推開門走進了酒館。`].slice(-20);
+                        await updateDoc(getGameRef(gameId), { players: updatedPlayers, logs: newLogs });
+                    }
+                    joinRoom(gameId, name);
+                } else {
+                    showMessage("錯誤", "找不到該房間。");
+                }
+            } catch (e) {
+                console.error(e);
+                showMessage("連線錯誤", "加入房間失敗。");
+            }
+        });
+
+        function joinRoom(gameId, playerName) {
+            currentGameId = gameId;
+            elLobby.classList.add('hidden');
+            elGame.classList.remove('hidden');
+            elGame.classList.add('flex');
+            displayRoomCode.textContent = gameId;
+            localPlayerState.name = playerName;
+
+            if (unsubscribeGame) unsubscribeGame();
+            unsubscribeGame = onSnapshot(getGameRef(gameId), (doc) => {
+                if (doc.exists()) {
+                    gameData = doc.data();
+                    renderGame();
+                    checkEvaluationPhase();
+                } else {
+                    showMessage("斷線", "房間已被關閉。").then(()=> location.reload());
+                }
+            }, (error) => console.error("Sync error:", error));
+        }
+
+        function renderGame() {
+            if (!gameData || !currentUser) return;
+            
+            const isHost = gameData.hostId === currentUser.uid;
+            const myData = gameData.players[currentUser.uid];
+            if (myData) localPlayerState = { ...myData };
+
+            // 頂部資訊更新
+            displayRound.textContent = gameData.round;
+            document.getElementById('display-properties').textContent = gameData.propertiesDeck !== undefined ? gameData.propertiesDeck.length : 10;
+            document.getElementById('display-bank').textContent = gameData.bankCash !== undefined ? gameData.bankCash : 0;
+
+            // 狀態文字標籤
+            if (gameData.status === 'lobby') {
+                statusHeader.textContent = "等待其他牛仔加入...";
+                statusHeader.className = "font-bold mt-2 md:mt-0 text-yellow-300";
+            } else if (gameData.status === 'rolling') {
+                statusHeader.textContent = "擲骰階段 - 請擲出你的命運！";
+                statusHeader.className = "font-bold mt-2 md:mt-0 text-green-300";
+            } else if (gameData.status === 'finished') {
+                statusHeader.textContent = "遊戲結束！";
+                statusHeader.className = "font-bold mt-2 md:mt-0 text-red-300";
+            } else if (gameData.status === 'evaluating' || gameData.status === 'drafting') {
+                statusHeader.textContent = "小鎮結算中...";
+                statusHeader.className = "font-bold mt-2 md:mt-0 text-blue-300";
+            }
+
+            // 開始按鈕顯示
+            if (isHost && gameData.status === 'lobby' && Object.keys(gameData.players).length >= 1) {
+                btnStart.classList.remove('hidden');
+            } else {
+                btnStart.classList.add('hidden');
+            }
+
+            // 渲染玩家列表與分數計算
+            listPlayers.innerHTML = '';
+            for (const [uid, p] of Object.entries(gameData.players)) {
+                const li = document.createElement('li');
+                li.className = `p-2 rounded border flex justify-between items-center ${uid === currentUser.uid ? 'bg-amber-200 border-amber-400 font-bold' : 'bg-white border-gray-200'}`;
+                
+                let statusBadge = '';
+                if (gameData.status === 'rolling') {
+                    statusBadge = p.locked ? '<span class="text-xs bg-green-500 text-white px-2 py-1 rounded">已鎖定</span>' 
+                                           : `<span class="text-xs bg-yellow-500 text-white px-2 py-1 rounded">擲骰中</span>`;
+                }
+                const sheriffIcon = p.hasSheriff ? '⭐' : '';
+                
+                // 總分計算 = 基礎分 + 金塊 + floor(現金/2) + 警長(5) + 被動卡牌分
+                let cardVP = 0;
+                (p.cards || []).forEach(c => { if (CARD_DB[c] && CARD_DB[c].vp) cardVP += CARD_DB[c].vp; });
+                const vp = p.score + p.gold + Math.floor(p.cash / 2) + (p.hasSheriff ? 5 : 0) + cardVP;
+                const cardCount = (p.cards || []).length;
+
+                li.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <span>${p.name} ${sheriffIcon}</span>
+                        ${statusBadge}
+                    </div>
+                    <div class="text-xs text-right text-gray-700 font-mono">
+                        💰${p.cash} 🥇${p.gold} 🃏${cardCount}張 🏆${vp}分
+                    </div>
+                `;
+                listPlayers.appendChild(li);
+            }
+
+            if (gameData.status === 'lobby' || gameData.status === 'finished') {
+                btnRoll.disabled = true;
+                if(gameData.status === 'finished') myTurnStatus.textContent = "結算完成";
+            } else {
+                let cost = Math.max(0, stagedIndices.size - 1);
+                let remainingToKeep = localPlayerState.kept.filter(k => !k).length;
+                let willLock = (stagedIndices.size === remainingToKeep);
+
+                btnRoll.disabled = (stagedIndices.size === 0 || localPlayerState.cash < cost || localPlayerState.locked);
+
+                if (localPlayerState.locked) {
+                    btnRoll.textContent = "已鎖定";
+                    myTurnStatus.textContent = "你已鎖定骰子，等待其他人...";
+                } else {
+                    myTurnStatus.textContent = "你的回合";
+                    if (stagedIndices.size === 0) {
+                        btnRoll.textContent = "請點擊要保留的骰子";
+                    } else {
+                        let actionText = willLock ? "保留並鎖定" : "保留並重骰";
+                        let costText = cost > 0 ? ` (支付 $${cost})` : " (免費)";
+                        btnRoll.textContent = actionText + costText;
+                    }
+                }
+            }
+            
+            // 繪製骰子 UI
+            containerDice.innerHTML = '';
+            localPlayerState.dice.forEach((face, index) => {
+                const d = document.createElement('div');
+                let classes = `die die-face-${face}`;
+                if (localPlayerState.kept[index]) classes += ' kept';
+                else if (stagedIndices.has(index)) classes += ' staged';
+                
+                d.className = classes;
+                d.innerHTML = face; // 9, 10, J, Q, K, A
+
+                d.addEventListener('click', () => {
+                    if (gameData.status !== 'rolling' || localPlayerState.locked || localPlayerState.kept[index]) return;
+                    if (stagedIndices.has(index)) stagedIndices.delete(index);
+                    else stagedIndices.add(index);
+                    renderGame(); // 刷新按鈕狀態
+                });
+                containerDice.appendChild(d);
+            });
+
+            // 渲染自己擁有的卡牌
+            const containerCards = document.getElementById('my-cards-container');
+            if (containerCards) {
+                containerCards.innerHTML = '';
+                (localPlayerState.cards || []).forEach((cardId, cardIndex) => {
+                    const cardDef = CARD_DB[cardId];
+                    if (!cardDef) return;
+                    
+                    const cDiv = document.createElement('div');
+                    cDiv.className = `p-2 rounded border-2 shadow-sm text-xs select-none transition ${cardDef.type === 'active' ? 'bg-blue-50 border-blue-400 hover:bg-blue-200 cursor-pointer' : 'bg-gray-100 border-gray-300'}`;
+                    cDiv.innerHTML = `<div class="font-bold mb-1 text-gray-800">${cardDef.name}</div><div class="text-[10px] text-gray-600">${cardDef.desc}</div>`;
+                    
+                    cDiv.addEventListener('click', async () => {
+                        if (gameData.status !== 'rolling') return showMessage("提示", "只能在擲骰階段使用卡牌！");
+                        if (cardDef.type !== 'active') return showMessage("提示", "這是一張被動卡片，遊戲結束時會自動計分。");
+                        
+                        // 發動卡牌魔法
+                        let updates = {};
+                        const pState = { ...localPlayerState };
+                        pState.cards.splice(cardIndex, 1); 
+                        
+                        let logMsg = "";
+                        if (cardDef.execute) logMsg = cardDef.execute(pState, updates, gameData, currentUser.uid);
+                        
+                        updates[`players.${currentUser.uid}`] = pState;
+                        updates.logs = [...gameData.logs, `${localPlayerState.name} ${logMsg}`].slice(-50);
+                        
+                        try {
+                            await updateDoc(getGameRef(currentGameId), updates);
+                        } catch (e) { console.error("Card execute error", e); }
+                    });
+                    containerCards.appendChild(cDiv);
+                });
+            }
+
+            // 渲染房地產挑選畫面 (Drafting Modal)
+            const draftOverlay = document.getElementById('draft-modal-overlay');
+            const draftStatusText = document.getElementById('draft-status-text');
+            const draftCardsContainer = document.getElementById('draft-cards-container');
+            const draftSkipContainer = document.getElementById('draft-skip-container');
+
+            if (gameData.status === 'drafting' && gameData.drafting) {
+                draftOverlay.classList.remove('hidden');
+                draftOverlay.classList.add('flex');
+
+                const currentDrafterUid = gameData.drafting.order[gameData.drafting.currentIndex];
+                const drafterName = gameData.players[currentDrafterUid].name;
+                const isMyTurn = currentDrafterUid === currentUser.uid;
+
+                if (isMyTurn) {
+                    draftStatusText.textContent = `🤠 輪到你了，${drafterName}！請挑選 1 張房地產`;
+                    draftStatusText.className = "text-2xl text-green-700 font-bold mb-6";
+                    draftSkipContainer.classList.remove('hidden');
+                } else {
+                    draftStatusText.textContent = `⏳ 等待 ${drafterName} 挑選房地產...`;
+                    draftStatusText.className = "text-xl text-amber-800 font-bold mb-6";
+                    if (isHost) draftSkipContainer.classList.remove('hidden');
+                    else draftSkipContainer.classList.add('hidden');
+                }
+
+                draftCardsContainer.innerHTML = '';
+                gameData.drafting.cards.forEach((vp, index) => {
+                    const cardBtn = document.createElement('button');
+                    cardBtn.className = `w-24 h-36 md:w-32 md:h-48 bg-white border-4 border-amber-600 rounded-xl shadow-lg flex flex-col items-center justify-center transition-transform ${isMyTurn ? 'hover:scale-105 hover:bg-amber-50 cursor-pointer' : 'opacity-60 cursor-not-allowed'}`;
+                    cardBtn.innerHTML = `<span class="text-4xl mb-3">📜</span><span class="font-bold text-amber-900 text-2xl">${vp} 分</span>`;
+                    
+                    if (isMyTurn) cardBtn.onclick = () => executeDraftPick(index);
+                    draftCardsContainer.appendChild(cardBtn);
+                });
+
+                document.getElementById('btn-skip-draft').onclick = () => executeDraftPick(-1);
+            } else {
+                draftOverlay.classList.add('hidden');
+                draftOverlay.classList.remove('flex');
+            }
+
+            // 日誌更新
+            if (gameData.logs) {
+                gameLogs.innerHTML = gameData.logs.map(l => `<div class="border-b border-gray-100 pb-1">• ${l}</div>`).join('');
+                gameLogs.scrollTop = gameLogs.scrollHeight;
+            }
+        }
+
+        btnStart.addEventListener('click', async () => {
+            if (!gameData || gameData.hostId !== currentUser.uid) return;
+            
+            const updatedPlayers = { ...gameData.players };
+            for (const uid in updatedPlayers) {
+                updatedPlayers[uid].locked = false;
+                updatedPlayers[uid].kept = [false,false,false,false,false];
+                // 第一把隨機發骰，防止作弊
+                updatedPlayers[uid].dice = Array(5).fill(0).map(() => FACES[Math.floor(Math.random() * FACES.length)]);
+            }
+            stagedIndices.clear();
+
+            try {
+                await updateDoc(getGameRef(currentGameId), {
+                    status: 'rolling',
+                    round: 1,
+                    players: updatedPlayers,
+                    logs: [...gameData.logs, "=========================", "=== 🎲 遊戲開始，第一回合 ==="].slice(-50)
+                });
+            } catch (e) { console.error(e); }
+        });
+
+        // 玩家進行保留與付費
+        btnRoll.addEventListener('click', async () => {
+            if (localPlayerState.locked || stagedIndices.size === 0) return;
+            
+            const cost = Math.max(0, stagedIndices.size - 1);
+            if (localPlayerState.cash < cost) {
+                return showMessage("提示", "你的現金不足，請少保留一點骰子或使用卡牌！");
+            }
+
+            // 扣錢，錢流向銀行
+            localPlayerState.cash -= cost;
+            let bankIncrement = cost;
+            
+            // 標記保留的骰子
+            stagedIndices.forEach(i => localPlayerState.kept[i] = true);
+            
+            // 未保留的重新擲骰
+            for (let i = 0; i < 5; i++) {
+                if (!localPlayerState.kept[i]) {
+                    localPlayerState.dice[i] = FACES[Math.floor(Math.random() * FACES.length)];
+                }
+            }
+
+            // 檢查是否 5 顆全保留了
+            if (localPlayerState.kept.every(k => k)) {
+                localPlayerState.locked = true;
+            }
+            
+            stagedIndices.clear();
+
+            try {
+                const path = `players.${currentUser.uid}`;
+                await updateDoc(getGameRef(currentGameId), {
+                    [path]: localPlayerState,
+                    bankCash: increment(bankIncrement) // 錢進銀行
+                });
+            } catch (e) { console.error("Error syncing player state", e); }
+        });
+
+        async function checkEvaluationPhase() {
+            if (!gameData || gameData.hostId !== currentUser.uid) return;
+            if (gameData.status !== 'rolling') return;
+
+            const allLocked = Object.values(gameData.players).every(p => p.locked);
+            if (allLocked) {
+                await updateDoc(getGameRef(currentGameId), { status: 'evaluating' });
+                await evaluateRound();
+            }
+        }
+
+        // 撲克牌型判斷演算法
+        function evaluatePokerHand(dice) {
+            const counts = {};
+            dice.forEach(d => counts[d] = (counts[d] || 0) + 1);
+            const freqs = Object.values(counts).sort((a,b) => b-a);
+            const facesPresent = Object.keys(counts);
+            
+            // 牌型大小定義
+            let rank = 0;
+            if (freqs[0] === 5) rank = 7; // 五條
+            else if (freqs[0] === 4) rank = 6; // 四條
+            else if (freqs[0] === 3 && freqs[1] === 2) rank = 5; // 葫蘆
+            else if (freqs.length === 5) {
+                // 順子判定
+                const straight1 = ['9','10','J','Q','K'].every(f => facesPresent.includes(f));
+                const straight2 = ['10','J','Q','K','A'].every(f => facesPresent.includes(f));
+                if (straight1 || straight2) rank = 4;
+            }
+            if (rank === 0 && freqs[0] === 3) rank = 3; // 三條
+            if (rank === 0 && freqs[0] === 2 && freqs[1] === 2) rank = 2; // 兩對
+            if (rank === 0 && freqs[0] === 2 && freqs[1] === 1) rank = 1; // 一對
+            
+            // 同牌型時比數字總大小
+            const valueMap = {'9':1,'10':2,'J':3,'Q':4,'K':5,'A':6};
+            let subScore = dice.reduce((sum, d) => sum + valueMap[d], 0);
+
+            return rank * 100 + subScore;
+        }
+
+        // 執行結算邏輯
+        async function evaluateRound() {
+            const players = { ...gameData.players };
+            const uids = Object.keys(players);
+            let roundLogs = [`=== 結算回合 ${gameData.round} ===`];
+            const winCount = {}; // 庸醫紀錄
+            uids.forEach(uid => winCount[uid] = 0);
+
+            // 尋找各區域最多骰子的玩家
+            const findWinners = (face) => {
+                let maxCount = 0;
+                let winners = [];
+                uids.forEach(uid => {
+                    const count = players[uid].dice.filter(d => d === face).length;
+                    if (count > maxCount) {
+                        maxCount = count;
+                        winners = [uid];
+                    } else if (count === maxCount && count > 0) {
+                        winners.push(uid);
+                    }
+                });
+                return { winners, maxCount };
+            };
+
+            // [9] 金礦
+            const res9 = findWinners('9');
+            if (res9.maxCount > 0) {
+                const names = res9.winners.map(u => players[u].name).join(', ');
+                res9.winners.forEach(u => { players[u].gold += res9.maxCount; winCount[u]++; });
+                roundLogs.push(`⛏️金礦 [9]: ${names} 挖到了 ${res9.maxCount} 塊金塊。`);
+            }
+
+            // [10] 銀行
+            const res10 = findWinners('10');
+            let bankCash = gameData.bankCash || 0;
+            if (res10.maxCount > 0) {
+                const names = res10.winners.map(u => players[u].name).join(', ');
+                const share = Math.floor(bankCash / res10.winners.length);
+                res10.winners.forEach(u => { players[u].cash += share; winCount[u]++; });
+                roundLogs.push(`🏦銀行 [10]: ${names} 搶走了銀行 ${share * res10.winners.length} 元！`);
+                bankCash -= (share * res10.winners.length);
+            }
+
+            // [J] 雜貨店抽卡
+            const resJ = findWinners('J');
+            if (resJ.maxCount > 0) {
+                const names = resJ.winners.map(u => players[u].name).join(', ');
+                resJ.winners.forEach(u => {
+                    for(let i=0; i<resJ.maxCount; i++) {
+                        const randomCard = CARD_KEYS[Math.floor(Math.random() * CARD_KEYS.length)];
+                        if (!players[u].cards) players[u].cards = [];
+                        players[u].cards.push(randomCard);
+                    }
+                    winCount[u]++;
+                });
+                roundLogs.push(`🛒雜貨店 [J]: ${names} 抽了 ${resJ.maxCount} 張卡片。`);
+            }
+
+            // [Q] 酒館 (偷錢)
+            const resQ = findWinners('Q');
+            if (resQ.maxCount > 0) {
+                const names = resQ.winners.map(u => players[u].name).join(', ');
+                resQ.winners.forEach(winnerUid => {
+                    let stolen = 0;
+                    uids.forEach(u => {
+                        if (u !== winnerUid && players[u].cash > 0) {
+                            players[u].cash -= 1;
+                            stolen += 1;
+                        }
+                    });
+                    players[winnerUid].cash += stolen;
+                    winCount[winnerUid]++;
+                });
+                roundLogs.push(`🍺酒館 [Q]: ${names} 從所有人身上各偷走 1 元。`);
+            }
+
+            // [K] 警長
+            const resK = findWinners('K');
+            if (resK.maxCount > 0) {
+                if (resK.winners.length === 1) {
+                    const winnerUid = resK.winners[0];
+                    uids.forEach(u => players[u].hasSheriff = false);
+                    players[winnerUid].hasSheriff = true;
+                    winCount[winnerUid]++;
+                    roundLogs.push(`⭐警長 [K]: ${players[winnerUid].name} 奪得了警長星章！`);
+                } else {
+                    roundLogs.push(`⭐警長 [K]: 平手，無人奪得警長。`);
+                }
+            }
+
+            // [A] 市政廳 - 判斷撲克牌型
+            const sortedByHand = [...uids].sort((a,b) => {
+                const scoreA = evaluatePokerHand(players[a].dice);
+                const scoreB = evaluatePokerHand(players[b].dice);
+                if (scoreA !== scoreB) return scoreB - scoreA;
+                // 平手看警長
+                if (players[a].hasSheriff) return -1;
+                if (players[b].hasSheriff) return 1;
+                return 0; 
+            });
+
+            const winnerUid = sortedByHand[0];
+            const acesCount = players[winnerUid].dice.filter(d => d === 'A').length;
+            const drawCount = acesCount + 1;
+
+            let deck = gameData.propertiesDeck || [];
+            const drawnCards = deck.splice(0, drawCount);
+
+            if (drawnCards.length > 0) {
+                roundLogs.push(`🏛️市政廳 [A]: ${players[winnerUid].name} 牌型最佳，獲得房地產首選權！`);
+                
+                // 進入異步挑選狀態
+                setTimeout(async () => {
+                    try {
+                        await updateDoc(getGameRef(currentGameId), {
+                            status: 'drafting',
+                            propertiesDeck: deck,
+                            players: players,
+                            logs: [...gameData.logs, ...roundLogs].slice(-50),
+                            drafting: {
+                                cards: drawnCards,       
+                                order: sortedByHand,     
+                                currentIndex: 0,         
+                                winCount: winCount       
+                            }
+                        });
+                    } catch (e) { console.error("Drafting sync err", e); }
+                }, 2000);
+                return; // 中斷，由 executeDraftPick 接手
+            } else {
+                roundLogs.push(`🏛️市政廳 [A]: 房地產已全數售罄！`);
+            }
+
+            // 如果沒地產可挑，直接執行收尾
+            finishRound(players, uids, winCount, deck, bankCash, roundLogs);
+        }
+
+        // 房地產挑選點擊處理
+        window.executeDraftPick = async function(cardIndex) {
+            if (!gameData || gameData.status !== 'drafting') return;
+            
+            const newData = { ...gameData };
+            const pickerUid = newData.drafting.order[newData.drafting.currentIndex];
+            const isHost = gameData.hostId === currentUser.uid;
+
+            if (pickerUid !== currentUser.uid && !(isHost && cardIndex === -1)) return;
+
+            let roundLogs = [];
+            if (cardIndex !== -1 && newData.drafting.cards[cardIndex] !== undefined) {
+                const vp = newData.drafting.cards[cardIndex];
+                newData.players[pickerUid].score += vp;
+                newData.drafting.cards.splice(cardIndex, 1);
+                newData.drafting.winCount[pickerUid] = (newData.drafting.winCount[pickerUid] || 0) + 1;
+                roundLogs.push(`🏛️市政廳 [A]: ${newData.players[pickerUid].name} 挑選了 ${vp} 分的地產。`);
+            } else {
+                roundLogs.push(`🏛️市政廳 [A]: ${newData.players[pickerUid].name} 放棄挑選。`);
+            }
+
+            newData.drafting.currentIndex++;
+
+            if (newData.drafting.cards.length === 0 || newData.drafting.currentIndex >= newData.drafting.order.length) {
+                // 挑完後執行收尾
+                const uids = Object.keys(newData.players);
+                const winCount = newData.drafting.winCount;
+                const deck = newData.propertiesDeck;
+                let bankCash = newData.bankCash;
+                
+                finishRound(newData.players, uids, winCount, deck, bankCash, roundLogs, newData);
+            } else {
+                // 繼續下一位挑選
+                newData.logs = [...newData.logs, ...roundLogs].slice(-50);
+                try { await updateDoc(getGameRef(currentGameId), newData); } catch(e) {}
+            }
+        };
+
+        // 回合收尾統整函數
+        async function finishRound(players, uids, winCount, deck, bankCash, roundLogs, baseData = null) {
+            let newData = baseData || { ...gameData, players, propertiesDeck: deck };
+            
+            // 庸醫機制
+            uids.forEach(uid => {
+                if (!winCount[uid] || winCount[uid] === 0) {
+                    newData.players[uid].cash += 2;
+                    roundLogs.push(`👨‍⚕️庸醫補償: ${newData.players[uid].name} 一無所獲，得到 2 元。`);
+                }
+            });
+
+            newData.bankCash = (bankCash || 0) + 3; // 銀行每回合補3元
+            newData.round = (newData.round || 1) + 1;
+
+            if (newData.propertiesDeck.length === 0) {
+                newData.status = 'finished';
+                roundLogs.push("=========================");
+                roundLogs.push("=== 遊戲結束，結算總分 ===");
+                let highestVP = -1;
+                let winners = [];
+                uids.forEach(uid => {
+                    const p = newData.players[uid];
+                    let cardVP = 0;
+                    (p.cards || []).forEach(c => { if (CARD_DB[c] && CARD_DB[c].vp) cardVP += CARD_DB[c].vp; });
+                    const vp = p.score + p.gold + Math.floor(p.cash / 2) + (p.hasSheriff ? 5 : 0) + cardVP;
+                    if (vp > highestVP) { highestVP = vp; winners = [p.name]; }
+                    else if (vp === highestVP) { winners.push(p.name); }
+                });
+                roundLogs.push(`🏆 最終贏家: ${winners.join(', ')} (${highestVP}分)`);
+            } else {
+                newData.status = 'rolling';
+                uids.forEach(uid => {
+                    newData.players[uid].locked = false;
+                    newData.players[uid].kept = [false,false,false,false,false];
+                    newData.players[uid].dice = Array(5).fill(0).map(() => FACES[Math.floor(Math.random() * FACES.length)]);
+                });
+                stagedIndices.clear();
+            }
+
+            newData.drafting = null;
+            newData.logs = [...(newData.logs || gameData.logs), ...roundLogs].slice(-50);
+
+            setTimeout(async () => {
+                try { await updateDoc(getGameRef(currentGameId), newData); } 
+                catch (e) { console.error("Eval sync error", e); }
+            }, baseData ? 0 : 3000); // 若從 draft 來則不用延遲
+        }
+
+        // 頁面載入啟動
+        window.onload = initAuth;
+
+    </script>
+</body>
+</html>
